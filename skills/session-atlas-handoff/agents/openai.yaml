@@ -1,0 +1,4 @@
+interface:
+  display_name: "Session Atlas 标签、待续与收藏"
+  short_description: "按主题只读搜索会话卡片，填写线程标签，恢复后更新原待续卡并保留收藏。"
+  default_prompt: "用 $session-atlas-handoff 按主题只读查找卡片，或按实际进展更新当前线程的原待续卡并保留收藏。"

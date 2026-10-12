@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.codex-goals/
+.playwright-cli/
+
+artifacts/

@@ -1,0 +1,44 @@
+{
+  "name": "session-atlas",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/peipei-labs/session-atlas.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "test": "vitest run",
+    "test:scripts": "zsh -n scripts/install-macos.zsh scripts/uninstall-macos.zsh scripts/launch-agent-ownership.zsh scripts/test-launch-agent-ownership.zsh scripts/session-atlas-resume.zsh scripts/test-session-atlas-resume.zsh && zsh scripts/test-launch-agent-ownership.zsh && zsh scripts/test-session-atlas-resume.zsh && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bridge -p 'test_*.py' && node --test skills/session-atlas-handoff/scripts/*.test.mjs",
+    "check": "npm run typecheck && npm run test && npm run test:scripts && npm run build",
+    "start": "NODE_ENV=production node dist/node/server/index.js",
+    "protocol:check": "tsx scripts/check-codex-protocol.ts && node scripts/check-lifecycle-hooks.mjs",
+    "install:macos": "zsh scripts/install-macos.zsh",
+    "uninstall:macos": "zsh scripts/uninstall-macos.zsh"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.0.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3",
+    "vitest": "^3.2.4"
+  }
+}
