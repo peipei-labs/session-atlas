@@ -1,5 +1,5 @@
 /**
- * Narrow Codex App Server 0.148.x–0.154.x protocol surface used by Session Atlas.
+ * Narrow Codex App Server 0.148.x–0.154.x and 0.162.1 protocol surface used by Session Atlas.
  *
  * These declarations intentionally cover only the read and interaction methods this
  * provider calls. The generated schema remains the source of truth and is not vendored.

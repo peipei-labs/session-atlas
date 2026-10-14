@@ -20,7 +20,7 @@ The first release is deliberately personal and macOS-only:
 
 ## Development
 
-Requirements: Node.js 22.12+, Codex CLI 0.148.x–0.154.x for managed-thread write actions, iTerm2 3.6+ with its Python API enabled, and Python 3 available on PATH for memory sampling. The installation checks have a separate version range; passing a schema probe does not prove runtime compatibility. Codex 0.162.1 is currently rejected by the installation check and is not advertised as supported.
+Requirements: Node.js 22.12+, Codex CLI 0.148.x–0.154.x or exactly 0.162.1 for managed-thread write actions, iTerm2 3.6+ with its Python API enabled, and Python 3 available on PATH for memory sampling. The installation checks have a separate version range; passing a schema probe does not prove complete runtime compatibility. Codex 0.162.1 passes the schema and lifecycle checks and an isolated App Server startup/read/thread-creation check; model turns and live terminal restoration were not tested in that check.
 
 ```bash
 npm install
@@ -40,7 +40,7 @@ npm run protocol:check
 npm run check
 ```
 
-The schema probe accepts CLI 0.148.x–0.155.x and 0.157.x; runtime write actions remain restricted to 0.148.x–0.154.x. The probe also checks lifecycle hooks. See the [version matrix and verification limits](docs/compatibility-and-distribution.md) for the complete distinction. Unsupported versions do not enable writes, and their read operations are not guaranteed.
+The schema probe accepts CLI 0.148.x–0.155.x, 0.157.x, and exactly 0.162.1; runtime write actions are restricted to 0.148.x–0.154.x or exactly 0.162.1. The probe also checks lifecycle hooks. See the [version matrix and verification limits](docs/compatibility-and-distribution.md) for the complete distinction. Unsupported versions do not enable writes, and their read operations are not guaranteed.
 
 ## Using the workspace
 

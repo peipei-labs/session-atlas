@@ -23,14 +23,18 @@ The effective runtime write range is defined in [`src/server/codex/client.ts`](.
 | --- | --- | --- |
 | 0.148.x–0.154.x | Accepted; writes also require a running, healthy App Server and an Atlas-owned thread | Accepted; generated protocol must still contain the required method names |
 | 0.155.x or 0.157.x | Writes disabled | Accepted; generated protocol must still contain the required method names |
-| 0.156.x or any other version outside these ranges | Writes disabled | Rejected before schema generation |
-| 0.162.1, checked on 2026-10-12 | Writes disabled; live App Server operation was not validated for this release | Rejected: `Expected Codex 0.148.x–0.155.x or 0.157.x` |
+| Exactly 0.162.1, checked on 2026-10-14 | Accepted; writes also require a running, healthy App Server and an Atlas-owned thread | Accepted; schema and lifecycle checks passed |
+| 0.156.x or any other version outside the entries above, including other 0.162 patches and prereleases | Writes disabled | Rejected before schema generation |
 
 The probe generates experimental TypeScript schemas and checks the presence of 10 client request methods, 4 server request methods, and 7 notifications. These include paginated thread/turn/item reads, interaction methods, approval requests, and status events. A passing probe does not test payload compatibility, App Server startup, authentication, model access, live notifications, or terminal restoration. `npm run check` tests the repository and builds the app; it is also not a live Codex integration test.
 
-For the 2026-10-12 check, Codex 0.162.1 successfully generated schemas in a temporary directory, and all 21 method names required by the probe were present. This inspection sent no model request and changed no Codex configuration. It does **not** make 0.162.1 supported: the normal probe still rejects it and the runtime write gate remains closed. Reading a version number or finding a method in a schema is not evidence of a working end-to-end integration. [OpenAI's App Server documentation](https://learn.chatgpt.com/docs/app-server) explains that generated schemas correspond to the particular CLI version used to generate them.
+For the 2026-10-14 check, Codex 0.162.1 passed `npm run protocol:check`: all 21 required methods were present, both Atlas session hooks were trusted, and existing hooks and developer instructions were preserved. A separate App Server check used a disposable `CODEX_HOME` and project directory: the real Atlas client completed initialization, read the inventory, created a thread, and read its metadata and loaded-thread list. No real user session or configuration was changed. The probe used a local dummy model provider and sent no model request.
 
-Outside the runtime range, Atlas disables Codex send, steer, interrupt, approval, and answer actions. Read-only inventory may also fail if App Server startup or response formats have changed; do not assume that an unsupported version can still display live Codex sessions. Some existing health/error messages still mention `0.148.x–0.153.x`; the effective runtime gate in `client.ts` is `0.148.x–0.154.x`.
+The isolated check also exercised `CodexProvider` metadata validation and the workbench's bounded execution read for a newly created thread. Before its first user message, 0.162.1 reports that paginated history is not materialized; Atlas shows an empty execution record for that exact thread-specific response and still surfaces unrelated errors.
+
+The allowlist adds only the verified `0.162.1` patch, not all `0.162.x` or future releases. Fixture tests cover turn start, steer, interrupt, and continued write rejection for unverified versions. Authentication, actual model turns, live approval/question delivery, and real terminal restoration were not validated by the isolated check. Reading a version number or finding a method in a schema is not evidence of a working end-to-end integration. [OpenAI's App Server documentation](https://learn.chatgpt.com/docs/app-server) explains that generated schemas correspond to the particular CLI version used to generate them.
+
+Outside the runtime allowlist, Atlas disables Codex send, steer, interrupt, approval, and answer actions. Read-only inventory may also fail if App Server startup or response formats have changed; do not assume that an unsupported version can still display live Codex sessions. Health and write-error messages use the same runtime version label as the client.
 
 ## Check before installing
 

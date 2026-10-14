@@ -26,7 +26,7 @@ import { rpcKey, textInput } from "./protocol.js";
 const SUPPORTED_VERSION_MAJOR = 0;
 const SUPPORTED_VERSION_MIN_MINOR = 148;
 const SUPPORTED_VERSION_MAX_MINOR = 154;
-const SUPPORTED_VERSION_LABEL = "0.148.x–0.154.x";
+export const SUPPORTED_VERSION_LABEL = "0.148.x–0.154.x or 0.162.1";
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_PROTOCOL_LINE_BYTES = 8 * 1024 * 1024;
 
@@ -609,7 +609,7 @@ export class CodexAppServerClient implements CodexClientPort {
   }
 
   #setVersion(output: string): void {
-    const match = /(?:^|[^\d])(\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?(?:$|[^\d])/.exec(output);
+    const match = /(?:^|[^\d])(\d+)\.(\d+)\.(\d+)([-+][\w.-]+)?(?:$|[^\d])/.exec(output);
     if (!match) {
       this.#version = undefined;
       this.#versionSupported = false;
@@ -620,9 +620,10 @@ export class CodexAppServerClient implements CodexClientPort {
     const patch = Number(match[3]);
     this.#version = `${major}.${minor}.${patch}`;
     this.#versionSupported =
-      major === SUPPORTED_VERSION_MAJOR &&
-      minor >= SUPPORTED_VERSION_MIN_MINOR &&
-      minor <= SUPPORTED_VERSION_MAX_MINOR;
+      (major === SUPPORTED_VERSION_MAJOR &&
+        minor >= SUPPORTED_VERSION_MIN_MINOR &&
+        minor <= SUPPORTED_VERSION_MAX_MINOR) ||
+      (major === 0 && minor === 162 && patch === 1 && !match[4]);
   }
 
   #setState(state: CodexClientState, error?: Error): void {

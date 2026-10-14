@@ -1,5 +1,11 @@
 # Known Issues
 
+## CODEX-001: Direct provider refresh can omit a new thread before its first message
+
+Status: Open, reproduced with an isolated Codex 0.162.1 App Server on 2026-10-14 (Asia/Shanghai).
+
+Before its first user message, a new thread appears in `thread/loaded/list` but has no persistent `thread/list` record. Calling `CodexProvider.refresh()` after creating that thread removes its cached card because the refresh rebuilds the inventory from the persistent list. The application currently calls this refresh at provider startup; no periodic UI call was found. The normal create-and-open workbench path retains the thread and now shows an empty execution record. This observation used disposable data and no model turn.
+
 ## DEP-001: Development dependencies have known audit advisories
 
 Status: Open, checked on 2026-10-12 (Asia/Shanghai).

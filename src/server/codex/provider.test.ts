@@ -471,6 +471,45 @@ describe("CodexProvider", () => {
     expect(client.threadReadCalls).toEqual([]);
   });
 
+  it("shows an empty execution record for a new thread before its first user message", async () => {
+    const client = new FakeClient();
+    client.version = "0.162.1";
+    client.threadTurnsList = async ({ threadId }) => {
+      throw new CodexRpcError({
+        code: -32600,
+        message: `thread ${threadId} is not materialized yet; thread/turns/list is unavailable before first user message`,
+      });
+    };
+    const provider = createProvider(client);
+    await provider.start();
+    const created = await provider.createThread({ cwd: "/tmp/project" });
+
+    await expect(provider.readExecution(created.id)).resolves.toMatchObject({
+      turnId: "",
+      steps: [],
+      truncated: false,
+    });
+    expect(client.threadReadCalls).toEqual([]);
+    expect(client.turnStartCalls).toEqual([]);
+    expect(client.threadItemsListCalls).toEqual([]);
+    expect(created.capabilities.send).toBe(true);
+  });
+
+  it.each([
+    { code: -32600, message: "Invalid pagination limit" },
+    { code: -32600, message: "thread other-thread is not materialized yet; thread/turns/list is unavailable before first user message" },
+    { code: -32001, message: "thread managed-1 is not materialized yet; thread/turns/list is unavailable before first user message" },
+  ])("preserves unrelated history errors: $code $message", async (error) => {
+    const client = new FakeClient();
+    const rpcError = new CodexRpcError(error);
+    client.threadTurnsList = async () => { throw rpcError; };
+    const provider = createProvider(client);
+    await provider.start();
+    const created = await provider.createThread({ cwd: "/tmp/project" });
+
+    await expect(provider.readExecution(created.id)).rejects.toBe(rpcError);
+  });
+
   it("keeps a persisted but unloaded App Server thread read-only until explicitly managed", async () => {
     const client = new FakeClient();
     client.threads = [

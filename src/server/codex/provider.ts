@@ -17,6 +17,7 @@ import {
   CodexAppServerClient,
   CodexProtocolError,
   CodexRpcError,
+  SUPPORTED_VERSION_LABEL,
   type CodexClientEvent,
   type CodexClientPort,
 } from "./client.js";
@@ -297,6 +298,13 @@ export class CodexProvider {
           ? normalizeTurnExecution(full.data[0], this.#nowIso())
           : emptyExecution(this.#nowIso());
       } catch (error) {
+        if (
+          error instanceof CodexRpcError &&
+          error.code === -32600 &&
+          error.message === `thread ${threadId} is not materialized yet; thread/turns/list is unavailable before first user message`
+        ) {
+          return emptyExecution(this.#nowIso());
+        }
         if (!(error instanceof CodexRpcError) || error.code !== -32601) throw error;
       }
     }
@@ -1136,7 +1144,7 @@ export class CodexProvider {
       this.#setHealth({
         codex: "readonly",
         message: this.#client.version
-          ? `Codex ${this.#client.version} is outside the supported 0.148.x–0.153.x protocol range.`
+          ? `Codex ${this.#client.version} is read-only; writes require a healthy ${SUPPORTED_VERSION_LABEL} protocol.`
           : "The Codex protocol version could not be verified.",
       });
     }
@@ -1163,7 +1171,7 @@ export class CodexProvider {
     if (!this.#client.writable) {
       throw new CodexProviderError(
         "READ_ONLY_PROTOCOL_VERSION",
-        "Codex writes are disabled because the 0.148.x–0.153.x protocol was not verified.",
+        `Codex writes are disabled because the ${SUPPORTED_VERSION_LABEL} protocol was not verified.`,
       );
     }
   }

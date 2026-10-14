@@ -130,6 +130,33 @@ describe("CodexAppServerClient", () => {
     );
   });
 
+  it("allows the verified 0.162.1 version to read, create threads, and interact", async () => {
+    const client = createClient({ FAKE_CODEX_VERSION: "0.162.1" });
+    await client.start();
+
+    expect(client.version).toBe("0.162.1");
+    expect(client.writable).toBe(true);
+    expect((await client.threadList()).data[0]?.id).toBe("thread-1");
+    expect((await client.threadStart({ cwd: "/tmp/fixture-project" })).thread.id).toBe("thread-1");
+    expect((await client.turnStart("thread-1", "supported write")).turn.id).toBe("turn-1");
+    expect((await client.turnSteer("thread-1", "turn-1", "add this")).turnId).toBe("turn-1");
+    await expect(client.turnInterrupt("thread-1", "turn-1")).resolves.toBeUndefined();
+  });
+
+  it.each(["0.162.0", "0.162.2", "0.162.1-alpha", "0.163.0"])(
+    "keeps unverified %s read-only",
+    async (version) => {
+      const client = createClient({ FAKE_CODEX_VERSION: version });
+      await client.start();
+
+      expect(client.writable).toBe(false);
+      await expect(client.threadList()).resolves.toMatchObject({ data: [{ id: "thread-1" }] });
+      await expect(client.turnStart("thread-1", "must not be sent")).rejects.toBeInstanceOf(
+        CodexReadOnlyError,
+      );
+    },
+  );
+
   it("surfaces server requests and writes a correlated response", async () => {
     const client = createClient({ FAKE_SERVER_REQUEST: "question" });
     const serverRequest = waitForEvent(client, (event) => event.type === "server-request");

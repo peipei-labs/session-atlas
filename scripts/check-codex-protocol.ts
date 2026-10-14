@@ -39,8 +39,11 @@ const requiredNotifications = [
 async function main() {
   const { stdout } = await execFileAsync("codex", ["--version"]);
   const version = stdout.trim();
-  if (!/codex-cli 0\.(?:148|149|150|151|152|153|154|155|157)\./.test(version)) {
-    throw new Error(`Expected Codex 0.148.x–0.155.x or 0.157.x, received: ${version}`);
+  if (
+    !/codex-cli 0\.(?:148|149|150|151|152|153|154|155|157)\./.test(version) &&
+    version !== "codex-cli 0.162.1"
+  ) {
+    throw new Error(`Expected Codex 0.148.x–0.155.x, 0.157.x, or 0.162.1, received: ${version}`);
   }
 
   const outputDirectory = await mkdtemp(join(tmpdir(), "session-atlas-protocol-"));
