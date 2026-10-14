@@ -11,7 +11,7 @@ Session Atlas currently targets one macOS user running Codex in iTerm2. Check th
 | Terminal | iTerm2 3.6+ with its Python API enabled in Settings → General → Magic; the installer does not enable it automatically |
 | Codex | Codex CLI on `PATH`, using the default `~/.codex` data directory; see the version table below |
 | Python | `python3` on `PATH` for process-memory sampling; the iTerm2 companion uses iTerm2's Python API runtime |
-| Installed mode | A per-user LaunchAgent, an iTerm2 AutoLaunch companion, and the repository-owned handoff skill; see [installation](../README.md#macos-installation) |
+| Installed mode | A per-user LaunchAgent, an iTerm2 AutoLaunch companion, and the repository-owned handoff skill; see [installation](usage.md#macos-installation) |
 
 Custom or multiple `CODEX_HOME` directories are not supported. The installer rejects a nondefault directory before making changes. Windows, Linux, other terminal applications, remote access, and other agents such as Claude Code are not supported integrations in this release.
 
