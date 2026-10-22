@@ -1,4 +1,4 @@
-import { execFile, spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface as ReadLineInterface } from "node:readline";
 
 import type {
@@ -23,10 +23,7 @@ import type {
 } from "./protocol.js";
 import { rpcKey, textInput } from "./protocol.js";
 
-const SUPPORTED_VERSION_MAJOR = 0;
-const SUPPORTED_VERSION_MIN_MINOR = 148;
-const SUPPORTED_VERSION_MAX_MINOR = 154;
-export const SUPPORTED_VERSION_LABEL = "0.148.x–0.154.x or 0.162.1";
+import { probeCodexCompatibility, type CompatibilityResult } from "./compatibility.js";
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_PROTOCOL_LINE_BYTES = 8 * 1024 * 1024;
 
@@ -44,12 +41,11 @@ export type CodexClientListener = (event: CodexClientEvent) => void;
 export interface CodexAppServerClientOptions {
   executable?: string;
   appServerArgs?: string[];
-  versionArgs?: string[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   requestTimeoutMs?: number;
   clientVersion?: string;
-  versionProbe?: () => Promise<string>;
+  compatibilityProbe?: () => Promise<CompatibilityResult>;
 }
 
 export class CodexProtocolError extends Error {
@@ -74,11 +70,9 @@ export class CodexRpcError extends Error {
 export class CodexReadOnlyError extends Error {
   readonly code = "READ_ONLY_PROTOCOL_VERSION";
 
-  constructor(version: string | undefined) {
+  constructor(version: string | undefined, reason?: string) {
     super(
-      version
-        ? `Codex ${version} is outside the supported ${SUPPORTED_VERSION_LABEL} protocol range; writes are disabled.`
-        : "The Codex protocol version could not be verified; writes are disabled.",
+      reason ?? `Codex ${version ?? "unknown"} has not passed compatibility checks; writes are disabled.`,
     );
     this.name = "CodexReadOnlyError";
   }
@@ -100,6 +94,7 @@ export interface CodexClientPort {
   readonly state: CodexClientState;
   readonly version: string | undefined;
   readonly writable: boolean;
+  readonly compatibilityReason?: string;
   readonly processId?: number;
   readonly initializeResult: InitializeResponse | undefined;
   start(): Promise<void>;
@@ -123,14 +118,15 @@ export class CodexAppServerClient implements CodexClientPort {
   readonly #options: Required<
     Pick<
       CodexAppServerClientOptions,
-      "executable" | "appServerArgs" | "versionArgs" | "requestTimeoutMs" | "clientVersion"
+      "executable" | "appServerArgs" | "requestTimeoutMs" | "clientVersion"
     >
   > &
-    Omit<CodexAppServerClientOptions, "executable" | "appServerArgs" | "versionArgs" | "requestTimeoutMs" | "clientVersion">;
+    Omit<CodexAppServerClientOptions, "executable" | "appServerArgs" | "requestTimeoutMs" | "clientVersion">;
 
   #state: CodexClientState = "stopped";
   #version: string | undefined;
-  #versionSupported = false;
+  #contractCompatible = false;
+  #compatibilityReason: string | undefined;
   #protocolHealthy = true;
   #initializeResult: InitializeResponse | undefined;
   #spawned: SpawnedProcess | undefined;
@@ -146,12 +142,11 @@ export class CodexAppServerClient implements CodexClientPort {
     this.#options = {
       executable: options.executable ?? "codex",
       appServerArgs: options.appServerArgs ?? ["app-server", "--stdio"],
-      versionArgs: options.versionArgs ?? ["--version"],
       requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
       clientVersion: options.clientVersion ?? "0.1.0",
       cwd: options.cwd,
       env: options.env,
-      versionProbe: options.versionProbe,
+      compatibilityProbe: options.compatibilityProbe,
     };
   }
 
@@ -164,7 +159,11 @@ export class CodexAppServerClient implements CodexClientPort {
   }
 
   get writable(): boolean {
-    return this.#state === "running" && this.#versionSupported && this.#protocolHealthy;
+    return this.#state === "running" && this.#contractCompatible && this.#protocolHealthy;
+  }
+
+  get compatibilityReason(): string | undefined {
+    return this.#compatibilityReason;
   }
 
   get processId(): number | undefined {
@@ -201,10 +200,17 @@ export class CodexAppServerClient implements CodexClientPort {
     this.#setState("starting");
 
     try {
-      const versionOutput = await this.#probeVersion().catch(() => "");
-      this.#setVersion(versionOutput);
+      this.#contractCompatible = false;
+      this.#version = undefined;
+      this.#initializeResult = undefined;
+      const compatibility = await (this.#options.compatibilityProbe?.() ?? probeCodexCompatibility(this.#options))
+        .catch(() => ({ executable: this.#options.executable, compatible: false, reason: "Codex compatibility detection failed." } as CompatibilityResult));
+      if (this.#stopRequested) throw new CodexProtocolError("Codex startup was cancelled.");
+      this.#version = compatibility.version;
+      this.#contractCompatible = compatibility.compatible;
+      this.#compatibilityReason = compatibility.reason;
 
-      const child = nodeSpawn(this.#options.executable, this.#options.appServerArgs, {
+      const child = nodeSpawn(compatibility.executable, this.#options.appServerArgs, {
         cwd: this.#options.cwd,
         env: { ...process.env, ...this.#options.env },
         stdio: ["pipe", "pipe", "pipe"],
@@ -250,8 +256,10 @@ export class CodexAppServerClient implements CodexClientPort {
       );
       this.#assertInitializeResponse(initialized);
       this.#initializeResult = initialized;
-      if (!this.#version) {
-        this.#setVersion(initialized.userAgent);
+      const runningVersion = /(?:^|[^\d])(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)(?:$|[^\d])/.exec(initialized.userAgent)?.[1];
+      if (runningVersion !== this.#version) {
+        this.#contractCompatible = false;
+        this.#compatibilityReason = "The running Codex version differs from the checked executable; reconnect to retry.";
       }
       this.#writeMessage({ method: "initialized" });
       this.#setState("running");
@@ -378,6 +386,10 @@ export class CodexAppServerClient implements CodexClientPort {
   }
 
   declineServerRequest(request: RpcServerRequest, message = "Session Atlas declined the request."): void {
+    if (!this.#contractCompatible) {
+      this.rejectServerRequest(request.id, -32001, "Codex protocol compatibility is unverified.");
+      return;
+    }
     if (request.method === "item/commandExecution/requestApproval") {
       this.#respondFailClosed(request.id, { decision: "decline" });
       return;
@@ -554,6 +566,7 @@ export class CodexAppServerClient implements CodexClientPort {
 
   #markProtocolUnhealthy(error: Error): void {
     this.#protocolHealthy = false;
+    this.#compatibilityReason = "Codex emitted invalid protocol data; writes are disabled.";
     this.#emit({ type: "protocol-error", error });
   }
 
@@ -566,7 +579,7 @@ export class CodexAppServerClient implements CodexClientPort {
   #ensureWritable(): void {
     this.#ensureRunning();
     if (!this.writable) {
-      throw new CodexReadOnlyError(this.#version);
+      throw new CodexReadOnlyError(this.#version, this.#compatibilityReason);
     }
   }
 
@@ -580,50 +593,6 @@ export class CodexAppServerClient implements CodexClientPort {
     ) {
       throw new CodexProtocolError("Codex App Server returned an invalid initialize response.");
     }
-  }
-
-  async #probeVersion(): Promise<string> {
-    if (this.#options.versionProbe) {
-      return this.#options.versionProbe();
-    }
-    return new Promise<string>((resolve, reject) => {
-      execFile(
-        this.#options.executable,
-        this.#options.versionArgs,
-        {
-          cwd: this.#options.cwd,
-          env: { ...process.env, ...this.#options.env },
-          timeout: 5_000,
-          maxBuffer: 64 * 1024,
-          encoding: "utf8",
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve(`${stdout}\n${stderr}`);
-        },
-      );
-    });
-  }
-
-  #setVersion(output: string): void {
-    const match = /(?:^|[^\d])(\d+)\.(\d+)\.(\d+)([-+][\w.-]+)?(?:$|[^\d])/.exec(output);
-    if (!match) {
-      this.#version = undefined;
-      this.#versionSupported = false;
-      return;
-    }
-    const major = Number(match[1]);
-    const minor = Number(match[2]);
-    const patch = Number(match[3]);
-    this.#version = `${major}.${minor}.${patch}`;
-    this.#versionSupported =
-      (major === SUPPORTED_VERSION_MAJOR &&
-        minor >= SUPPORTED_VERSION_MIN_MINOR &&
-        minor <= SUPPORTED_VERSION_MAX_MINOR) ||
-      (major === 0 && minor === 162 && patch === 1 && !match[4]);
   }
 
   #setState(state: CodexClientState, error?: Error): void {

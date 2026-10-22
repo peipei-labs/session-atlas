@@ -3,18 +3,24 @@ import { spawn } from "node:child_process";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CodexAppServerClient, CodexReadOnlyError, type CodexClientEvent } from "./client.js";
+import { CodexAppServerClient, CodexReadOnlyError, type CodexClientEvent, type CodexAppServerClientOptions } from "./client.js";
 
 const fixture = fileURLToPath(new URL("./__fixtures__/fake-codex.mjs", import.meta.url));
 const clients: CodexAppServerClient[] = [];
 
-function createClient(env: NodeJS.ProcessEnv = {}): CodexAppServerClient {
+function createClient(env: NodeJS.ProcessEnv = {}, options: Partial<CodexAppServerClientOptions> = {}): CodexAppServerClient {
   const client = new CodexAppServerClient({
     executable: process.execPath,
-    versionArgs: [fixture, "--version"],
+    compatibilityProbe: async () => ({
+      executable: process.execPath,
+      version: env.FAKE_CODEX_VERSION ?? "0.148.7",
+      compatible: env.FAKE_COMPATIBLE !== "0",
+      ...(env.FAKE_COMPATIBLE === "0" ? { reason: "Changed contract: turn/start.input" } : {}),
+    }),
     appServerArgs: [fixture],
     env,
     requestTimeoutMs: 2_000,
+    ...options,
   });
   clients.push(client);
   return client;
@@ -75,7 +81,7 @@ describe("CodexAppServerClient", () => {
     });
   });
 
-  it("keeps locally verified 0.150.x writable", async () => {
+  it("accepts a compatible contract on 0.150.x writable", async () => {
     const client = createClient({ FAKE_CODEX_VERSION: "0.150.1" });
     await client.start();
 
@@ -86,7 +92,7 @@ describe("CodexAppServerClient", () => {
     });
   });
 
-  it("keeps locally verified 0.152.x writable", async () => {
+  it("accepts a compatible contract on 0.152.x writable", async () => {
     const client = createClient({ FAKE_CODEX_VERSION: "0.152.0" });
     await client.start();
 
@@ -97,7 +103,7 @@ describe("CodexAppServerClient", () => {
     });
   });
 
-  it("keeps locally verified 0.153.x writable", async () => {
+  it("accepts a compatible contract on 0.153.x writable", async () => {
     const client = createClient({ FAKE_CODEX_VERSION: "0.153.2" });
     await client.start();
 
@@ -108,7 +114,7 @@ describe("CodexAppServerClient", () => {
     });
   });
 
-  it("keeps locally verified 0.154.x writable", async () => {
+  it("accepts a compatible contract on 0.154.x writable", async () => {
     const client = createClient({ FAKE_CODEX_VERSION: "0.154.0" });
     await client.start();
 
@@ -119,8 +125,8 @@ describe("CodexAppServerClient", () => {
     });
   });
 
-  it("allows inventory reads but fails closed for writes outside the supported range", async () => {
-    const client = createClient({ FAKE_CODEX_VERSION: "0.155.0" });
+  it("allows inventory reads but fails closed for an incompatible contract", async () => {
+    const client = createClient({ FAKE_CODEX_VERSION: "0.999.0", FAKE_COMPATIBLE: "0" });
     await client.start();
 
     expect(client.writable).toBe(false);
@@ -130,32 +136,41 @@ describe("CodexAppServerClient", () => {
     );
   });
 
-  it("allows the verified 0.162.1 version to read, create threads, and interact", async () => {
-    const client = createClient({ FAKE_CODEX_VERSION: "0.162.1" });
+  it("automatically accepts an unknown future version when its contract and handshake pass", async () => {
+    const client = createClient({ FAKE_CODEX_VERSION: "1.999.42" });
     await client.start();
-
-    expect(client.version).toBe("0.162.1");
     expect(client.writable).toBe(true);
-    expect((await client.threadList()).data[0]?.id).toBe("thread-1");
-    expect((await client.threadStart({ cwd: "/tmp/fixture-project" })).thread.id).toBe("thread-1");
-    expect((await client.turnStart("thread-1", "supported write")).turn.id).toBe("turn-1");
-    expect((await client.turnSteer("thread-1", "turn-1", "add this")).turnId).toBe("turn-1");
-    await expect(client.turnInterrupt("thread-1", "turn-1")).resolves.toBeUndefined();
+    await expect(client.turnStart("thread-1", "fixture only")).resolves.toMatchObject({ turn: { id: "turn-1" } });
   });
 
-  it.each(["0.162.0", "0.162.2", "0.162.1-alpha", "0.163.0"])(
-    "keeps unverified %s read-only",
-    async (version) => {
-      const client = createClient({ FAKE_CODEX_VERSION: version });
-      await client.start();
+  it("keeps writes disabled when the checked and running versions differ", async () => {
+    const client = createClient({}, {
+      compatibilityProbe: async () => ({ executable: process.execPath, version: "0.163.0", compatible: true }),
+    });
+    await client.start();
+    expect(client.writable).toBe(false);
+    expect(client.compatibilityReason).toContain("differs");
+  });
 
-      expect(client.writable).toBe(false);
-      await expect(client.threadList()).resolves.toMatchObject({ data: [{ id: "thread-1" }] });
-      await expect(client.turnStart("thread-1", "must not be sent")).rejects.toBeInstanceOf(
-        CodexReadOnlyError,
-      );
-    },
-  );
+  it("retries failed compatibility checks on reconnect", async () => {
+    let attempts = 0;
+    const client = createClient({}, {
+      compatibilityProbe: async () => ({ executable: process.execPath, version: "0.148.7", compatible: ++attempts > 1 }),
+    });
+    await client.start();
+    expect(client.writable).toBe(false);
+    await client.stop();
+    await client.start();
+    expect(client.writable).toBe(true);
+    expect(attempts).toBe(2);
+  });
+
+  it("keeps reads available when the compatibility probe throws", async () => {
+    const client = createClient({}, { compatibilityProbe: async () => { throw new Error("probe failure"); } });
+    await client.start();
+    expect(client.writable).toBe(false);
+    await expect(client.threadList()).resolves.toMatchObject({ data: [{ id: "thread-1" }] });
+  });
 
   it("surfaces server requests and writes a correlated response", async () => {
     const client = createClient({ FAKE_SERVER_REQUEST: "question" });
