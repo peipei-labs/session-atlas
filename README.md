@@ -23,7 +23,7 @@ VITE_SESSION_ATLAS_DEMO=1 npx vite --host 127.0.0.1 --port 4318
 
 ## 接入自己的终端
 
-需要 macOS、iTerm2 3.6+（开启 Python API）、Python 3 和 Codex 0.162.1；其他支持版本见[兼容说明](docs/compatibility-and-distribution.md)。
+需要 macOS、iTerm2 3.6+（开启 Python API）、Python 3，以及通过自动协议检查的 Codex CLI。安装时会核对协议结构与初始化握手，验证范围见[兼容说明](docs/compatibility-and-distribution.md)。
 
 ```sh
 npm run install:macos

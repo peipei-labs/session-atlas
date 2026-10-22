@@ -23,7 +23,7 @@ Open <http://127.0.0.1:4318>. The demo uses fixed data and does not connect to r
 
 ## Connect your terminal
 
-Requires macOS, iTerm2 3.6+ with its Python API enabled, Python 3, and Codex 0.162.1. See [compatibility notes](docs/compatibility-and-distribution.md) for other supported versions.
+Requires macOS, iTerm2 3.6+ with its Python API enabled, Python 3, and a Codex CLI that passes the automatic protocol check. Installation checks the protocol structure and initialization handshake; see [compatibility notes](docs/compatibility-and-distribution.md) for verification limits.
 
 ```sh
 npm run install:macos

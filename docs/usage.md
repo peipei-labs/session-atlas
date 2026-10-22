@@ -34,7 +34,7 @@ npm run protocol:check
 npm run check
 ```
 
-The schema probe accepts CLI 0.148.x–0.155.x, 0.157.x, and exactly 0.162.1; runtime write actions are restricted to 0.148.x–0.154.x or exactly 0.162.1. The probe also checks lifecycle hooks. See the [version matrix and verification limits](compatibility-and-distribution.md) for the complete distinction. Unsupported versions do not enable writes, and their read operations are not guaranteed.
+The protocol check compares the installed CLI with the used contract, verifies an isolated initialization handshake and loaded-thread inventory, and checks lifecycle hooks. Runtime writes also require a healthy protocol and an Atlas-owned thread. Failed checks disable writes; inventory reads remain available only when the App Server can start. See [automatic compatibility and verification limits](compatibility-and-distribution.md) for details.
 
 ## Using the workspace
 
