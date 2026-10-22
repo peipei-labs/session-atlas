@@ -17,7 +17,6 @@ import {
   CodexAppServerClient,
   CodexProtocolError,
   CodexRpcError,
-  SUPPORTED_VERSION_LABEL,
   type CodexClientEvent,
   type CodexClientPort,
 } from "./client.js";
@@ -550,7 +549,7 @@ export class CodexProvider {
     if (!this.#client.writable) {
       this.#client.declineServerRequest(
         request,
-        "Session Atlas is in read-only mode because the protocol version is unsupported.",
+        "Session Atlas is in read-only mode because protocol compatibility is unverified.",
       );
       return;
     }
@@ -1143,9 +1142,7 @@ export class CodexProvider {
     } else {
       this.#setHealth({
         codex: "readonly",
-        message: this.#client.version
-          ? `Codex ${this.#client.version} is read-only; writes require a healthy ${SUPPORTED_VERSION_LABEL} protocol.`
-          : "The Codex protocol version could not be verified.",
+        message: this.#client.compatibilityReason ?? "Codex protocol compatibility has not been verified; writes are disabled.",
       });
     }
   }
@@ -1171,7 +1168,7 @@ export class CodexProvider {
     if (!this.#client.writable) {
       throw new CodexProviderError(
         "READ_ONLY_PROTOCOL_VERSION",
-        `Codex writes are disabled because the ${SUPPORTED_VERSION_LABEL} protocol was not verified.`,
+        this.#client.compatibilityReason ?? "Codex writes are disabled because protocol compatibility has not been verified.",
       );
     }
   }

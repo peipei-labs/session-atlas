@@ -473,7 +473,7 @@ describe("CodexProvider", () => {
 
   it("shows an empty execution record for a new thread before its first user message", async () => {
     const client = new FakeClient();
-    client.version = "0.162.1";
+    client.version = "0.163.0";
     client.threadTurnsList = async ({ threadId }) => {
       throw new CodexRpcError({
         code: -32600,

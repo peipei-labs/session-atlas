@@ -298,7 +298,8 @@ export class SessionAtlasController {
         this.config.allowedProjectRoots,
         this.config.deniedProjectRoots,
       );
-      if (input.source !== "thread" && runtime.cwd !== cwd) {
+      const savedCwdOverride = this.snapshot().recoveries.find((record) => record.sessionId === sessionId)?.cwdOverride;
+      if (input.source !== "thread" && runtime.cwd !== cwd && savedCwdOverride !== cwd) {
         throw new AppError(409, "SESSION_CWD_MISMATCH", "登记目录与原线程当前目录不一致。");
       }
       const candidates = this.snapshot().sessions.filter((item) => item.conversationId === sessionId && !item.stale);
@@ -330,7 +331,8 @@ export class SessionAtlasController {
     const client = this.#bookmarkTitleClient;
     const record = this.registry.requireRecovery(sessionId);
     const marker = record.bookmarkTitleMarker;
-    if (!record.handoff?.reference && !marker) return "unchanged";
+    const saved = hasSavedHandoff(record.handoff);
+    if (!saved && !marker) return "unchanged";
     if (!client) return "unavailable";
     try {
       const name = await client.readName(sessionId);
@@ -340,10 +342,10 @@ export class SessionAtlasController {
           await this.registry.updateBookmarkTitleMarker(sessionId);
           return "unchanged";
         }
-        const target = record.handoff?.reference ? marker.appliedName : marker.originalName;
+        const target = saved ? marker.appliedName : marker.originalName;
         if (name !== target && !await client.rename(sessionId, name, target)) return "unavailable";
-        if (!record.handoff?.reference) await this.registry.updateBookmarkTitleMarker(sessionId);
-        return record.handoff?.reference ? "applied" : "cleared";
+        if (!saved) await this.registry.updateBookmarkTitleMarker(sessionId);
+        return saved ? "applied" : "cleared";
       }
       if (name.startsWith("🔖 ") || !name.trim() || name.length > 256 || /[\u0000-\u001f\u007f-\u009f]/u.test(name)) return "unchanged";
       const appliedName = `🔖 ${name}`;

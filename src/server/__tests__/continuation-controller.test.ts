@@ -760,6 +760,36 @@ describe("continuation controller", () => {
     expect(f.registry.getHandoff(SESSION_ID)).toEqual(saved.handoff);
   });
 
+  it("allows editing, completing and unbookmarking a card after a corrected-directory restore fails", async () => {
+    const f = await httpFixture();
+    const reference = { title: "Project notes", reason: "Keep the recovery procedure" };
+    await f.controller.upsertHandoff(SESSION_ID, f.input({ reference }));
+    f.closeInventory();
+    await vi.waitFor(() => expect(f.registry.requireRecovery(SESSION_ID).status).toBe("closed"));
+    const corrected = join(f.directory, "Code", "moved");
+    await mkdir(corrected);
+    await rm(f.project, { recursive: true });
+    f.iterm.restoreError = new Error("Temporary bridge failure");
+    expect((await f.request(`/api/handoffs/${SESSION_ID}/resume`, "POST", { cwd: corrected })).status).toBeGreaterThanOrEqual(400);
+
+    const unrelated = join(f.directory, "Code", "unrelated");
+    await mkdir(unrelated);
+    await expect(f.controller.upsertHandoff(SESSION_ID, f.input({ source: "user", cwd: unrelated })))
+      .rejects.toMatchObject({ code: "SESSION_CWD_MISMATCH" });
+    const edited = await f.controller.upsertHandoff(SESSION_ID, f.input({ source: "user", cwd: corrected, summary: "Updated recovery notes", reference }));
+    expect(edited).toMatchObject({ cwd: corrected, cwdOverride: corrected, handoff: { summary: "Updated recovery notes", reference } });
+    const completed = await f.controller.upsertHandoff(SESSION_ID, f.input({
+      source: "user", cwd: corrected, reference,
+      items: edited.handoff!.items.map((item) => ({ ...item, status: "done" })),
+    }));
+    expect(completed.handoff!.items[0]!.status).toBe("done");
+    const unbookmarked = await f.controller.upsertHandoff(SESSION_ID, f.input({
+      source: "user", cwd: corrected, reference: null, items: completed.handoff!.items,
+    }));
+    expect(unbookmarked.handoff!.reference).toBeUndefined();
+    expect(unbookmarked.cwdOverride).toBe(corrected);
+  });
+
   it.each([true, false])("restores from the verified directory after the old directory disappears, with saved card: %s", async (withCard) => {
     const f = await makeFixture();
     const saved = withCard ? await f.controller.upsertHandoff(SESSION_ID, f.input()) : undefined;
@@ -2011,7 +2041,7 @@ describe("saved-session visual markers", () => {
   });
 });
 
-describe("bookmark thread titles", () => {
+describe("saved-handoff thread titles", () => {
   const reference = { title: "日志核查结论", reason: "以后排查时参考" };
   function titleClient(initialName: string | undefined = "日志核查") {
     const client = {
@@ -2026,7 +2056,7 @@ describe("bookmark thread titles", () => {
     return client;
   }
 
-  it("marks the exact bookmarked thread without a linked pane, preserving card content and tags", async () => {
+  it.each(["pending", "bookmark"] as const)("marks the exact %s thread without a linked pane, preserving card content and tags", async (kind) => {
     const client = titleClient();
     const f = await makeFixture({ active: false, bookmarkTitleClient: client });
     await f.controller.updateThreadTags(SESSION_ID, { add: ["Log4j2"] });
@@ -2038,32 +2068,75 @@ describe("bookmark thread titles", () => {
       client.name = name;
       return true;
     });
-    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ items: [], reference }));
+    const input = f.input(kind === "bookmark" ? { items: [], reference } : {});
+    const saved = await f.controller.upsertHandoff(SESSION_ID, input);
     expect(client.name).toBe("🔖 日志核查");
-    expect(saved).toMatchObject({ tags: ["Log4j2"], handoff: { items: [], reference } });
+    expect(saved).toMatchObject({ tags: ["Log4j2"], handoff: { items: input.items } });
+    expect(saved.handoff?.reference).toEqual(input.reference);
     expect(f.iterm.markersConfigured).toEqual([]);
     expect(f.iterm.focused).toEqual([]);
     expect(f.iterm.restored).toEqual([]);
   });
 
-  it("does not rename a pending-only thread and does not duplicate a retained bookmark prefix", async () => {
+  it("does not duplicate the prefix when adding or removing a bookmark while work remains pending", async () => {
     const client = titleClient();
     const f = await makeFixture({ bookmarkTitleClient: client });
     await f.controller.upsertHandoff(SESSION_ID, f.input());
-    expect(client.readName).not.toHaveBeenCalled();
+    expect(client.name).toBe("🔖 日志核查");
     await f.controller.upsertHandoff(SESSION_ID, f.input({ reference }));
     await f.controller.upsertHandoff(SESSION_ID, f.input({ summary: "更新待续说明" }));
     expect(client.rename).toHaveBeenCalledTimes(1);
     expect(client.name).toBe("🔖 日志核查");
     expect(f.registry.getHandoff(SESSION_ID)?.reference).toEqual(reference);
+    const withoutBookmark = await f.controller.upsertHandoff(SESSION_ID, f.input({ reference: null }));
+    expect(withoutBookmark.handoff?.reference).toBeUndefined();
+    expect(withoutBookmark.handoff?.items[0]?.status).toBe("pending");
+    expect(withoutBookmark.bookmarkTitleMarker?.appliedName).toBe(client.name);
+    expect(client.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["done", "cancelled"] as const)("restores the owned name when pending work becomes %s without a bookmark", async (status) => {
+    const client = titleClient();
+    const f = await makeFixture({ bookmarkTitleClient: client });
+    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input());
+    expect(client.name).toBe("🔖 日志核查");
+    const completed = await f.controller.upsertHandoff(SESSION_ID, f.input({
+      items: saved.handoff!.items.map((item) => ({ ...item, status })),
+    }));
+    expect(completed.handoff?.items[0]?.status).toBe(status);
+    expect(client.name).toBe("日志核查");
+    expect(completed.bookmarkTitleMarker).toBeUndefined();
+  });
+
+  it.each(["done", "cancelled"] as const)("keeps the prefix when pending work becomes %s and a bookmark remains", async (status) => {
+    const client = titleClient();
+    const f = await makeFixture({ bookmarkTitleClient: client });
+    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ reference }));
+    const completed = await f.controller.upsertHandoff(SESSION_ID, f.input({
+      items: saved.handoff!.items.map((item) => ({ ...item, status })),
+    }));
+    expect(completed.handoff?.reference).toEqual(reference);
+    expect(completed.bookmarkTitleMarker).toEqual(saved.bookmarkTitleMarker);
+    expect(client.name).toBe("🔖 日志核查");
+    expect(client.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["empty", "done", "cancelled"] as const)("does not read daemon names for %s work without a bookmark or owned marker", async (status) => {
+    const client = titleClient();
+    const f = await makeFixture({ bookmarkTitleClient: client });
+    const items = status === "empty" ? [] : f.input().items.map((item) => ({ ...item, status }));
+    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ items }));
+    expect(saved.bookmarkTitleMarker).toBeUndefined();
+    expect(client.readName).not.toHaveBeenCalled();
+    expect(client.rename).not.toHaveBeenCalled();
   });
 
   it.each(["reference", "handoff"] as const)("removing the %s restores only the owned name", async (kind) => {
     const client = titleClient();
     const f = await makeFixture({ bookmarkTitleClient: client });
-    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ reference }));
+    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ reference, ...(kind === "reference" ? { items: [] } : {}) }));
     if (kind === "reference") {
-      const result = await f.controller.upsertHandoff(SESSION_ID, f.input({ reference: null }));
+      const result = await f.controller.upsertHandoff(SESSION_ID, f.input({ items: [], reference: null }));
       expect(result.handoff?.items).toEqual(saved.handoff?.items);
     } else {
       await f.controller.removeHandoff(SESSION_ID, saved.handoff!.version!);
@@ -2089,7 +2162,7 @@ describe("bookmark thread titles", () => {
     const f = await makeFixture({ bookmarkTitleClient: client });
     await f.controller.upsertHandoff(SESSION_ID, f.input({ reference }));
     client.name = "用户改过的名称";
-    await f.controller.upsertHandoff(SESSION_ID, f.input({ reference: null }));
+    await f.controller.upsertHandoff(SESSION_ID, f.input({ items: [], reference: null }));
     expect(client.name).toBe("用户改过的名称");
     expect(client.rename).toHaveBeenCalledTimes(1);
     expect(f.registry.requireRecovery(SESSION_ID).bookmarkTitleMarker).toBeUndefined();
@@ -2115,7 +2188,7 @@ describe("bookmark thread titles", () => {
     expect(saved.bookmarkTitleMarker?.appliedName).toBe(client.name);
     await expect(f.controller.syncBookmarkTitleMarker(SESSION_ID)).resolves.toEqual({ status: "applied" });
     expect(client.rename).toHaveBeenCalledTimes(1);
-    await f.controller.upsertHandoff(SESSION_ID, f.input({ reference: null }));
+    await f.controller.upsertHandoff(SESSION_ID, f.input({ items: [], reference: null }));
     expect(client.name).toBe("日志核查");
   });
 
@@ -2134,7 +2207,7 @@ describe("bookmark thread titles", () => {
     const f = await httpFixture({ bookmarkTitleClient: client });
     await f.controller.upsertHandoff(SESSION_ID, f.input({ reference }));
     client.name = undefined;
-    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ reference: null }));
+    const saved = await f.controller.upsertHandoff(SESSION_ID, f.input({ items: [], reference: null }));
     expect(saved.bookmarkTitleMarker).toBeDefined();
     client.name = "🔖 日志核查";
     const path = `/api/handoffs/${SESSION_ID}/title-marker`;

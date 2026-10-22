@@ -116,7 +116,7 @@ export default function App() {
   const persistedSelectionRef = useRef<string | undefined>(readPersistedSelection());
 
   const allSessions = controller.snapshot?.sessions ?? [];
-  const memoryReady = controller.snapshot?.health.iterm === "online" && allSessions.some((s) => !s.stale && s.terminalSessionId);
+  const memoryReady = import.meta.env.VITE_SESSION_ATLAS_DEMO !== "1" && controller.snapshot?.health.iterm === "online" && allSessions.some((s) => !s.stale && s.terminalSessionId);
   const memory = useMemorySnapshot(memoryReady);
   const memoryBridgeOnline = controller.snapshot?.health.iterm === "online";
   const memoryPresentation = useMemo(() => presentMemory(memory.snapshot, allSessions, memoryBridgeOnline), [memory.snapshot, allSessions, memoryBridgeOnline]);
